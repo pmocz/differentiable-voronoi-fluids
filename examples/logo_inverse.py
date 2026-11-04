@@ -9,7 +9,9 @@ mismatch at t = 1. L-BFGS starts from gas at rest, with reverse-mode gradients t
 whole run.
 
 Usage: uv run --group dev python examples/logo_inverse.py [--k 48] [--iters 150]
-Writes runs/logo_inverse/: velocity.npy, history.npy, logo_inverse.png, movie.mp4, movie.gif.
+Writes runs/logo_inverse/: velocity.npy, history.npy (loss at every evaluation),
+iterations.npy (at every L-BFGS iteration), logo_inverse.png, movie.mp4, movie.gif, and
+panels.gif (target, evolution, velocity and loss side by side).
 """
 
 import argparse
@@ -100,8 +102,18 @@ def solve(k, iters):
 
     n = pos.shape[0]
     print(f"{n} cells, {2 * n} unknowns, {n_steps} steps of {dt:.2e}")
+    iterations = []
+
+    def record(intermediate_result):
+        iterations.append(float(intermediate_result.fun))
+
     result = minimize(
-        fun, np.zeros(2 * n), jac=True, method="L-BFGS-B", options={"maxiter": iters, "maxcor": 20}
+        fun,
+        np.zeros(2 * n),
+        jac=True,
+        method="L-BFGS-B",
+        callback=record,
+        options={"maxiter": iters, "maxcor": 20},
     )
     print(
         f"loss {history[0]:.4e} -> {history[-1]:.4e} in {len(history)} evaluations, {time.time() - t0:.0f} s"
@@ -109,6 +121,7 @@ def solve(k, iters):
     OUT.mkdir(parents=True, exist_ok=True)
     np.save(OUT / "velocity.npy", result.x)
     np.save(OUT / "history.npy", np.array(history))
+    np.save(OUT / "iterations.npy", np.array([history[0], *iterations]))
 
 
 def snapshots(k, frames):
@@ -154,44 +167,119 @@ def draw_cells(ax, pos, rho, edges=True):
     return pc
 
 
-def figure(k):
-    snaps = snapshots(k, 2)
-    (_, pos0, _), (_, pos1, rho1) = snaps
-    v = np.load(OUT / "velocity.npy").reshape(-1, 2)
-    history = np.load(OUT / "history.npy")
-    fig, axes = plt.subplots(1, 4, figsize=(18, 4.6), dpi=100)
-    g = (np.arange(256) + 0.5) / 256
+def target_image(m=256):
+    g = (np.arange(m) + 0.5) / m
     gx, gy = np.meshgrid(g, g)
-    t_img = np.asarray(target(jnp.asarray(np.c_[gx.ravel(), gy.ravel()]))).reshape(256, 256)
-    axes[0].imshow(t_img, origin="lower", extent=[0, 1, 0, 1], cmap="magma", vmin=0.4, vmax=2.0)
-    axes[0].set_title("target density at t = 1")
+    return np.asarray(target(jnp.asarray(np.c_[gx.ravel(), gy.ravel()]))).reshape(m, m)
+
+
+def draw_target(ax, image):
+    ax.imshow(image, origin="lower", extent=[0, 1, 0, 1], cmap="magma", vmin=0.4, vmax=2.0)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title("target density at t = 1")
+
+
+def draw_velocity(ax, pos0, v):
     speed = np.linalg.norm(v, axis=1)
     polys, values = plot.wrapped(plot.cell_polygons(pos0, BOX), speed, BOX)
     pc = PolyCollection(polys, array=values, cmap="viridis", edgecolors="face")
-    axes[1].add_collection(pc)
-    step = max(1, round(math.sqrt(len(v)) / 24))
+    ax.add_collection(pc)
     kk = round(math.sqrt(len(v)))
+    step = max(1, round(kk / 24))
     sel = np.arange(len(v)).reshape(kk, kk)[::step, ::step].ravel()
-    axes[1].quiver(
-        pos0[sel, 0], pos0[sel, 1], v[sel, 0], v[sel, 1], color="w", scale=4.0, width=0.004
-    )
-    axes[1].set_xlim(0, 1)
-    axes[1].set_ylim(0, 1)
-    axes[1].set_aspect("equal")
-    axes[1].set_xticks([])
-    axes[1].set_yticks([])
+    ax.quiver(pos0[sel, 0], pos0[sel, 1], v[sel, 0], v[sel, 1], color="w", scale=4.0, width=0.004)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title("initial velocity found (uniform density)")
+    return pc
+
+
+def loss_curve():
+    """Loss per L-BFGS iteration, or, for runs that did not record it, the best loss so far
+    at each evaluation. Returns (values, x label)."""
+    if (OUT / "iterations.npy").exists():
+        return np.load(OUT / "iterations.npy"), "L-BFGS iteration"
+    return np.minimum.accumulate(np.load(OUT / "history.npy")), "loss evaluation"
+
+
+def draw_loss(ax, curve, xlabel, n_unknowns):
+    ax.semilogy(curve, "k-")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("loss")
+    ax.set_title(f"objective, over {n_unknowns} unknowns")
+
+
+def figure(k):
+    (_, pos0, _), (_, pos1, rho1) = snapshots(k, 2)
+    v = np.load(OUT / "velocity.npy").reshape(-1, 2)
+    fig, axes = plt.subplots(1, 4, figsize=(18, 4.6), dpi=100)
+    draw_target(axes[0], target_image())
+    pc = draw_velocity(axes[1], pos0, v)
     fig.colorbar(pc, ax=axes[1], shrink=0.8, label="initial speed")
-    axes[1].set_title("recovered initial velocity (uniform density)")
     pc = draw_cells(axes[2], pos1, rho1)
     fig.colorbar(pc, ax=axes[2], shrink=0.8, label="density")
     axes[2].set_title("density at t = 1, with the mesh")
-    axes[3].semilogy(history, "k-")
-    axes[3].set_xlabel("evaluation")
-    axes[3].set_ylabel("loss")
-    axes[3].set_title(f"L-BFGS over {len(v) * 2} unknowns")
+    draw_loss(axes[3], *loss_curve(), 2 * len(v))
     fig.tight_layout()
     fig.savefig(OUT / "logo_inverse.png", dpi=110)
     print(OUT / "logo_inverse.png")
+
+
+def render_panels(job):
+    path, t, pos, rho, pos0, v, image, (curve, xlabel) = job
+    fig, axes = plt.subplots(2, 2, figsize=(8, 8), dpi=80)
+    draw_target(axes[0, 0], image)
+    draw_cells(axes[0, 1], pos, rho)
+    axes[0, 1].set_title(f"density, t = {t:.2f}")
+    draw_velocity(axes[1, 0], pos0, v)
+    draw_loss(axes[1, 1], curve, xlabel, 2 * len(v))
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def panel_movie(k, frames=61, fps=15, hold=2.0):
+    """Target, evolution, initial velocity and loss in a 2 x 2 GIF; the last frame stays up
+    for `hold` seconds."""
+    snaps = snapshots(k, frames)
+    pos0 = snaps[0][1]
+    v = np.load(OUT / "velocity.npy").reshape(-1, 2)
+    image, curve = target_image(), loss_curve()
+    out = OUT / "panel_frames"
+    out.mkdir(exist_ok=True)
+    for stale in out.glob("*.png"):
+        stale.unlink()
+    jobs = [
+        (out / f"frame_{i:04d}.png", t, p, r, pos0, v, image, curve)
+        for i, (t, p, r) in enumerate(snaps)
+    ]
+    with Pool() as pool:
+        pool.map(render_panels, jobs)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-framerate",
+            str(fps),
+            "-i",
+            str(out / "frame_%04d.png"),
+            "-vf",
+            (
+                f"tpad=stop_mode=clone:stop_duration={hold},"
+                "split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];"
+                "[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
+            ),
+            str(OUT / "panels.gif"),
+        ],
+        check=True,
+    )
+    print(OUT / "panels.gif")
 
 
 def render(job):
@@ -265,6 +353,7 @@ def main():
         solve(args.k, args.iters)
     figure(args.k)
     movie(args.k)
+    panel_movie(args.k)
 
 
 if __name__ == "__main__":

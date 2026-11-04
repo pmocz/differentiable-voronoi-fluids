@@ -65,14 +65,14 @@ the same mean. The loss is the area-weighted squared mismatch, plus a small pena
 differences between neighboring cells' velocities. L-BFGS starts from gas at rest.
 
 At 48² (2,304 cells, 4,608 unknowns, 365 steps per run) L-BFGS lowers the loss from 0.200
-to 0.0138 in 95 evaluations, 30 minutes on a laptop CPU: the density at t = 1 carries 93%
-of the logo's variance (the loss at rest is that variance, and includes the penalty
+to 0.0128 in 80 iterations (95 evaluations), 25 minutes on a laptop CPU: the density at
+t = 1 carries 94% of the logo's variance (the loss at rest is that variance, and includes the penalty
 after). The cells crowd into the lines, so the moving mesh puts its resolution where the
 logo is.
 At 32² the same setup reaches 0.0195 in 151 evaluations, 16 minutes.
 
 ![logo inverse problem](docs/logo_inverse.png)
-![logo forming](docs/logo_inverse.gif)
+![logo forming: target, evolution, initial velocity and loss](docs/logo_inverse.gif)
 
 ## What it took
 
