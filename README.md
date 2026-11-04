@@ -2,8 +2,7 @@
 
 A 2D compressible Euler solver on an Arepo-style moving Voronoi mesh, written in JAX so
 that reverse-mode autodiff runs through a whole simulation, mesh motion included. It is a
-prototype of the approach, ported from the periodic-box core of
-[voroflow](../voroflow): no walls, no refinement, hydro only.
+prototype of the approach: a periodic box, no walls, no refinement, hydro only.
 
 ![inverse problem](docs/vortex_inverse.png)
 
@@ -39,11 +38,11 @@ gradient-based optimizers handle.
 **Forward accuracy.** The isentropic vortex carried once across a periodic box of side 10
 to t = 2 (`examples/vortex_convergence.py`):
 
-| Cells | Steps | L1 density error | Order | voroflow (Rust) |
-| --- | --- | --- | --- | --- |
-| 32² | 68 | 1.377e-3 | | 1.406e-3 |
-| 64² | 135 | 3.361e-4 | 2.03 | 3.277e-4 |
-| 128² | 269 | 8.335e-5 | 2.01 | 8.931e-5 |
+| Cells | Steps | L1 density error | Order |
+| --- | --- | --- | --- |
+| 32² | 68 | 1.377e-3 | |
+| 64² | 135 | 3.361e-4 | 2.03 |
+| 128² | 269 | 8.335e-5 | 2.01 |
 
 **Gradients.** Reverse mode agrees with central finite differences to about 1e-11 relative,
 and with forward mode (`jax.jvp`) to the last digit, on a run whose stream velocity is one
@@ -127,8 +126,8 @@ uv run --group dev python examples/logo_inverse.py --k 48 --iters 80
 - The Delaunay triangulation runs on the CPU and costs two host round trips per step. For
   a GPU, keep the connectivity and test it in JAX (each edge's two opposite corners against
   its circumcircle), rebuilding only when the test fails.
-- No walls yet. voroflow's conforming walls are seeds on circle intersections, a smooth
-  function of the surface samples, so shape gradients (airfoil drag, say) would come
+- No walls yet. Conforming walls, built from seed pairs on the intersections of circles
+  around surface samples, are a smooth function of those samples, so shape gradients (airfoil drag, say) would come
   without the noise of cut cells.
 - No refinement: the cell count is fixed. Splits and merges would have to be decided on the
   forward pass and replayed.
