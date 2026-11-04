@@ -58,6 +58,23 @@ start (4.9993, 4.9987) in 31 evaluations, 41 s on a laptop CPU at 32². The rema
 6.8e-6, is the solver's own discretization error; the 1% excess in strength makes up for
 the numerical dissipation that flattens the vortex.
 
+**Inverse problem with thousands of unknowns** (`examples/logo_inverse.py`). Gas at rest
+density 1 and pressure 0.01 fills a periodic unit box. Find the initial velocity of every
+cell, 2N unknowns, that brings the density at t = 1 to a logo: thick lines tracing the
+periodic Voronoi diagram of six sites, three times denser than the gas between them, with
+the same mean. The loss is the area-weighted squared mismatch, plus a small penalty on
+differences between neighboring cells' velocities. L-BFGS starts from gas at rest.
+
+At 48² (2,304 cells, 4,608 unknowns, 365 steps per run) L-BFGS lowers the loss from 0.200
+to 0.0138 in 95 evaluations, 30 minutes on a laptop CPU: the density at t = 1 carries 93%
+of the logo's variance (the loss at rest is that variance, and includes the penalty
+after). The cells crowd into the lines, so the moving mesh puts its resolution where the
+logo is.
+At 32² the same setup reaches 0.0195 in 151 evaluations, 16 minutes.
+
+![logo inverse problem](docs/logo_inverse.png)
+![logo forming](docs/logo_inverse.gif)
+
 ## What it took
 
 - **Cocircular seeds.** On a lattice, four seeds share a circle and the triangulation has a
@@ -71,6 +88,13 @@ the numerical dissipation that flattens the vortex.
   a face, which is exactly zero in uniform gas: the forward pass clipped the ratio away,
   but its derivative 1 / dw² was infinite. Denominators are kept at least 1e-100 from zero
   (so their squares stay finite), and changes too small to matter skip the ratio entirely.
+- **Gas at rest on a lattice.** On an exact square lattice the derivative of the dynamics
+  around gas at rest is unstable: a perturbation's tangent grew 10^4-fold over 160 steps,
+  and the gradient of the logo problem at rest came out 10^8 times too large. Cocircular
+  seeds make faces of zero length, whose length has no derivative there; the tangent
+  picks a direction for each from round-off. With the lattice jittered by 5% of the
+  spacing or more, the tangent stays bounded. The logo problem starts from a jittered
+  lattice, and the vortex problems, whose gas moves everywhere, are unaffected.
 - **Zero-length faces.** Norms add 1e-300 under the square root, so their gradient at zero
   is 0 rather than NaN.
 
@@ -81,9 +105,11 @@ the numerical dissipation that flattens the vortex.
 | `dvf/mesh.py` | periodic Delaunay connectivity on the host, Voronoi geometry in JAX |
 | `dvf/hydro.py` | state conversion, HLLC, moving-face flux |
 | `dvf/solver.py` | limited gradients, seed motion, the step, checkpointed runs |
-| `dvf/problems.py` | lattice seeds, isentropic vortex |
+| `dvf/problems.py` | lattice seeds, isentropic vortex, Voronoi-line logo |
+| `dvf/plot.py` | cell polygons for plotting |
 | `examples/vortex_convergence.py` | forward accuracy |
 | `examples/vortex_inverse.py` | recover a vortex from its later density |
+| `examples/logo_inverse.py` | find the initial velocity field that draws a logo |
 | `tests/` | mesh tiling and gradients, conservation, gradient checks |
 
 ## Running
@@ -93,6 +119,7 @@ uv sync
 uv run --group dev pytest -q tests
 uv run python examples/vortex_convergence.py
 uv run --group dev python examples/vortex_inverse.py
+uv run --group dev python examples/logo_inverse.py --k 48 --iters 80
 ```
 
 ## Limits and next steps

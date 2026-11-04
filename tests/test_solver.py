@@ -67,3 +67,30 @@ def test_segmented_checkpointing_gives_the_same_gradient():
     g1 = jax.grad(loss)(THETA, 20, 0)
     g2 = jax.grad(loss)(THETA, 20, 5)
     np.testing.assert_allclose(np.asarray(g2), np.asarray(g1), rtol=1e-12)
+
+
+def test_gradient_at_rest_has_the_right_size():
+    # The starting point of the logo problem. The loss has a kink at rest, where the limiter
+    # switches on for any perturbation, so compare a one-sided slope along the gradient
+    # rather than central differences. On an exact lattice the tangent dynamics at rest are
+    # unstable and this gradient comes out 1e8 times too large; the seeds are jittered.
+    from dvf import hydro
+
+    pos = problems.lattice(12, BOX, jitter=0.3, seed=2)
+    area = mesh.geometry(pos, mesh.topology(pos, BOX), BOX).area
+    n = pos.shape[0]
+
+    def final_misfit(v):
+        w = jnp.concatenate([jnp.ones((n, 1)), v.reshape(n, 2), jnp.full((n, 1), 0.1)], axis=1)
+        s = solver.State(pos, hydro.prim_to_cons(w, CFG.gamma) * area[:, None])
+        s = solver.run(s, 0.02, 40, CFG)
+        geo = mesh.geometry(s.pos, mesh.topology(s.pos, BOX), BOX)
+        rho = s.q[:, 0] / geo.area
+        return jnp.sum(geo.area * (rho - 1.0 - 0.3 * jnp.sin(geo.centroid[:, 0])) ** 2)
+
+    v0 = jnp.zeros(2 * n)
+    g = jax.grad(final_misfit)(v0)
+    norm = float(jnp.linalg.norm(g))
+    eps = 1e-6
+    slope = float(final_misfit(-eps * g / norm) - final_misfit(v0)) / eps
+    assert 0.5 < -slope / norm < 2.0, (slope, norm)
